@@ -1037,7 +1037,7 @@ In Part 1 you read how attackers turned **Trivy** - a security scanner - into a 
 - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 ```
 
-**For a downloaded tool**, compare the file with a known SHA-256 hash before running it - you'll see this in today's CircleCI job:
+**For a downloaded tool**, compare the file with a known SHA-256 hash before running it:
 
 ```bash
 echo "<expected-sha256>  snyk" | sha256sum -c -
@@ -1077,7 +1077,7 @@ build ──► test ──────┐
 snyk_scan ───────────┘
 ```
 
-<!-- INSTRUCTOR: run Part B on devops-demo before class. If Spring Boot's own dependencies have a HIGH issue that day, snyk_scan fails before Step 7 - use it as the first example (read the fix advice) or temporarily use --severity-threshold=critical. The Snyk CLI version and SHA-256 come from https://downloads.snyk.io/cli/stable/release.json (v1.1308.1, checked 2026-10-20); update both together. Check the current Snyk Free plan test limits. -->
+<!-- INSTRUCTOR: run Part B on devops-demo before class. If Spring Boot's own dependencies have a HIGH issue that day, snyk_scan fails before Step 8 - use it as the first example (read the fix advice) or temporarily set severity-threshold: critical. Orb snyk/snyk@2.3.0 (latest version published in the CircleCI orb registry, 1 Apr 2025, checked 2026-10-21 - GitHub has newer tags 2.3.1-2.3.3 that are not published to the registry; use only registry versions) with cli-version 1.1308.1 (https://downloads.snyk.io/cli/stable/release.json, 2026-10-20). Students must enable Organization Settings > Security > Allow Uncertified Orbs in their own CircleCI organization. Check the current Snyk Free plan test limits. -->
 
 ---
 
@@ -1129,11 +1129,30 @@ Open **Projects** → **devops-demo** → `pom.xml`.
 3. In CircleCI: your **devops-demo** project → **Project Settings** → **Environment Variables** → **Add Environment Variable**
 4. **Name:** `SNYK_TOKEN` - **Value:** your token
 
-**Treat this token like a password** - never put it in your code or `config.yml`. The Snyk CLI reads `SNYK_TOKEN` automatically, so no login step is needed.
+**Treat this token like a password** - never put it in your code or `config.yml`. The Snyk orb reads it from `SNYK_TOKEN` automatically.
 
-#### Step 5: Add the `snyk_scan` Job
+#### Step 5: Allow Partner Orbs in CircleCI
 
-Open `.circleci/config.yml` and add this job after `test`:
+We'll install Snyk with an **orb** - a reusable package of CircleCI configuration. Snyk publishes an official orb, `snyk/snyk`.
+
+CircleCI only **certifies** orbs it writes itself. Orbs from partners like Snyk are "uncertified", and are blocked until you allow them:
+
+1. In CircleCI, open **Organization Settings** (your personal organization)
+2. Click **Security**
+3. Set **Allow Uncertified Orbs** to **Yes**
+
+**Is that safe?** You're deciding to trust **Snyk's** orb, published under Snyk's own namespace - and in the next step you pin it to an exact version that can never change. In a company, a security or platform team usually makes this decision for everyone.
+
+#### Step 6: Add the Snyk Orb and the `snyk_scan` Job
+
+At the top of `.circleci/config.yml`, under `version: 2.1`, add:
+
+```yml
+orbs:
+  snyk: snyk/snyk@2.3.0
+```
+
+Then add this job after `test`:
 
 ```yml
   # ==========================================
@@ -1148,31 +1167,42 @@ Open `.circleci/config.yml` and add this job after `test`:
           keys:
             - maven-deps-{{ checksum "pom.xml" }}
             - maven-deps-
-      - run:
-          name: Install Snyk CLI (pinned by SHA-256)
-          command: |
-            mkdir -p $HOME/bin
-            curl -sSfL https://downloads.snyk.io/cli/v1.1308.1/snyk-linux -o $HOME/bin/snyk
-            echo "a8b2e420af6d8e61bf1d367c064475ccf699d767fc8763efb0072b9cac250f9a  $HOME/bin/snyk" | sha256sum -c -
-            chmod +x $HOME/bin/snyk
-            $HOME/bin/snyk --version
-      - run:
-          name: Snyk dependency scan - fail on HIGH or CRITICAL
-          command: $HOME/bin/snyk test --severity-threshold=high
+      - snyk/scan:
+          severity-threshold: high
+          cli-version: 1.1308.1
+          monitor-on-build: false
 ```
 
 **What this does:**
 
-| Step | Purpose |
+| Line | Purpose |
 |---|---|
+| `orbs: snyk: snyk/snyk@2.3.0` | Imports Snyk's orb at **exactly** version 2.3.0 |
 | `cimg/openjdk:21.0` | Java and Maven - Snyk runs Maven to list every dependency |
 | `restore_cache` | Reuses Maven downloads from the build job - faster |
-| Install Snyk CLI | Downloads Snyk `v1.1308.1` and **checks its SHA-256 hash** before running it (Part 7!) |
-| `snyk test --severity-threshold=high` | Scans `pom.xml`; **fails** the job on any HIGH or CRITICAL issue |
+| `snyk/scan` | The orb's command: installs the Snyk CLI, logs in with `SNYK_TOKEN`, and runs `snyk test` |
+| `severity-threshold: high` | **Fails** the job on any HIGH or CRITICAL issue (the default, `low`, would fail on anything) |
+| `cli-version: 1.1308.1` | Uses this exact Snyk CLI version - without it, the orb downloads the **latest** CLI |
+| `monitor-on-build: false` | Don't upload a snapshot to the Snyk website - Part A already watches your repository |
 
-You don't need to work out hashes yourself - copy this job as it is. Your instructor updates the version and hash when a new Snyk release is adopted.
+#### Why Is the Orb Secure?
 
-#### Step 6: Update the Workflow
+Remember Part 7: **tags can move, hashes can't**. An orb version is closer to a hash than to a tag:
+
+| Protection | How it works |
+|---|---|
+| **Published versions are immutable** | Once `snyk/snyk@2.3.0` is published to the CircleCI orb registry, it can't be edited or deleted - a change needs a **new** version number. Nobody can quietly swap the code behind `2.3.0`, the way the Trivy attackers moved Git tags |
+| **We pin the full version** | `@2.3.0`, not `@2` or `@volatile`. A partial version like `@2` follows the newest `2.x` release - that's a **moving** reference again |
+| **Trusted publisher** | `snyk/` is Snyk's own namespace, marked **PARTNER** in the registry - only Snyk can publish there |
+| **The CLI version is pinned too** | `cli-version: 1.1308.1` - the orb doesn't silently pick up a newer, untested CLI |
+| **Download integrity check** | The orb checks the downloaded CLI against Snyk's published SHA-256 checksum before running it |
+| **The token stays out of config** | `snyk/scan` reads the token from the `SNYK_TOKEN` environment variable - it never appears in `config.yml` |
+
+**Two honest limits:**
+- The orb downloads the CLI's checksum from the same Snyk server as the CLI. That catches broken or tampered downloads in transit - but not a compromised Snyk server. Pinning the orb and CLI versions, and not rushing to brand-new releases, reduce that risk
+- Allowing uncertified orbs allows **any** partner or community orb in your organization. Keep using only orbs from publishers you trust, pinned to full versions
+
+#### Step 7: Update the Workflow
 
 ```yml
 workflows:
@@ -1202,6 +1232,9 @@ workflows:
 
 ```yml
 version: 2.1
+
+orbs:
+  snyk: snyk/snyk@2.3.0
 
 jobs:
   build:
@@ -1258,17 +1291,10 @@ jobs:
           keys:
             - maven-deps-{{ checksum "pom.xml" }}
             - maven-deps-
-      - run:
-          name: Install Snyk CLI (pinned by SHA-256)
-          command: |
-            mkdir -p $HOME/bin
-            curl -sSfL https://downloads.snyk.io/cli/v1.1308.1/snyk-linux -o $HOME/bin/snyk
-            echo "a8b2e420af6d8e61bf1d367c064475ccf699d767fc8763efb0072b9cac250f9a  $HOME/bin/snyk" | sha256sum -c -
-            chmod +x $HOME/bin/snyk
-            $HOME/bin/snyk --version
-      - run:
-          name: Snyk dependency scan - fail on HIGH or CRITICAL
-          command: $HOME/bin/snyk test --severity-threshold=high
+      - snyk/scan:
+          severity-threshold: high
+          cli-version: 1.1308.1
+          monitor-on-build: false
 
   publish:
     docker:
@@ -1340,7 +1366,7 @@ Project name:      com.example:devops-demo
 
 All jobs green ✅ - the scan passed and the app was deployed.
 
-#### Step 7: Break It - Add a Vulnerable Dependency
+#### Step 8: Break It - Add a Vulnerable Dependency
 
 Add this inside `<dependencies>` in `pom.xml`:
 
@@ -1385,7 +1411,7 @@ Issues to fix by upgrading:
 
 Your Snyk website project (Part A) shows the same issue after Snyk's next re-test.
 
-#### Step 8: Fix It
+#### Step 9: Fix It
 
 Update the version - use the latest release, not just the minimum fix (check [mvnrepository](https://mvnrepository.com/artifact/org.apache.commons/commons-text)):
 

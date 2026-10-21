@@ -30,6 +30,6 @@
 | 15 min | Part 5: Dependency vulnerabilities | CVEs, Log4Shell example, transitive dependencies, best practices |
 | 10 min | Part 6: Security scanning types | SAST, DAST, SCA and container scanning table; tools used in 4.13 and 4.14 |
 | 15 min | Part 7: Supply-chain security — lessons from the Trivy attack | Who was hit and who was safe, tags vs hashes, pinning by commit SHA / digest / checksum, least privilege |
-| 45 min | Part 8: Activity 3 — Snyk | Part A: import devops-demo on the Snyk website and read results; Part B: `snyk_scan` CircleCI job gating publish, break and fix with commons-text 1.9 |
+| 45 min | Part 8: Activity 3 — Snyk | Part A: import devops-demo on the Snyk website and read results; Part B: `snyk_scan` CircleCI job with the Snyk orb (pinned `snyk/snyk@2.3.0`, why orbs are secure) gating publish, break and fix with commons-text 1.9 |
 | 5 min | Recap and wrap up | Key takeaways, preview Lesson 4.14 (OSV-Scanner, OWASP ZAP), Q&A |
 | **Total** | | **180 min** |
