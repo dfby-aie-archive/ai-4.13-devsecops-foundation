@@ -8,6 +8,8 @@ By the end of this lesson, you will be able to:
 2. **Describe** the shift-left security approach and its benefits
 3. **Identify** common security risks in CI/CD pipelines and dependency vulnerabilities
 4. **Apply** secrets management best practices to protect sensitive credentials
+5. **Explain** why pipelines should pin tools by immutable hashes, using the 2026 Trivy supply-chain attack
+6. **Scan** dependencies with Snyk - on the Snyk website and as a CircleCI security gate
 
 ---
 
@@ -19,6 +21,8 @@ Before starting this lesson, ensure you have:
 - Completed Lesson 4.12 (Continuous Deployment to Railway)
 - Understanding of CI/CD pipelines
 - Basic understanding of Docker
+- Your **devops-demo** repository with the Lesson 4.12 pipeline: build → test → publish → deploy
+- A **GitHub** account (to sign up to Snyk)
 
 ---
 
@@ -28,7 +32,7 @@ In previous lessons, you learned to build automated CI/CD pipelines that build, 
 
 Traditional approaches treated security as a final step before deployment - security teams would review code at the end. This caused delays, expensive fixes, and sometimes security vulnerabilities reaching production.
 
-**DevSecOps** changes this by integrating security throughout the entire development lifecycle. In this lesson, you'll learn the principles and practices that make applications secure from the start.
+**DevSecOps** changes this by integrating security throughout the entire development lifecycle. In this lesson, you'll learn the principles and practices that make applications secure from the start - then scan your own project with **Snyk** and make the scan a gate in your CircleCI pipeline.
 
 ---
 
@@ -481,7 +485,7 @@ FROM node:20-alpine
   └────────┬────────┘
            ↓
   ┌─────────────────┐
-  │  Security Scan  │ ← Dependency check, SAST, DAST
+  │  Security Scan  │ ← Dependency check (SCA), SAST
   └────────┬────────┘
            ↓
   ┌─────────────────┐
@@ -494,6 +498,10 @@ FROM node:20-alpine
            ↓
   ┌─────────────────┐
   │    Deploy       │ ← Secure secrets injection
+  └────────┬────────┘
+           ↓
+  ┌─────────────────┐
+  │   DAST Scan     │ ← Attack the running app (test environment)
   └─────────────────┘
 ```
 
@@ -926,118 +934,26 @@ mvn versions:display-dependency-updates
 
 ### Types of Security Scanning
 
-**1. SAST (Static Application Security Testing)**
-- Analyzes source code without running it
-- Finds coding errors (SQL injection, XSS)
-- Example tools: SonarQube, Checkmarx
+| Type | What it checks | When | Tools |
+|---|---|---|---|
+| **SAST** (Static Application Security Testing) | **Your own source code**, without running it: SQL injection, unsafe code patterns | Before or during build | Semgrep, CodeQL (built into GitHub), SonarQube / SonarCloud, SpotBugs + FindSecBugs (Java), Snyk Code, Checkmarx |
+| **DAST** (Dynamic Application Security Testing) | The **running app**, by attacking it from outside: missing security headers, injection, misconfiguration | After deploy, against a test environment | OWASP ZAP, Burp Suite, Nuclei, Nikto |
+| **SCA** (Software Composition Analysis) | **Other people's code** you depend on: known CVEs in libraries | Before build | Snyk, OSV-Scanner, Trivy `fs`, OWASP Dependency-Check, Dependabot |
+| **Container scanning** | The image: OS packages and the libraries inside it | After build, before push | Trivy `image`, Snyk Container, Grype, Docker Scout |
 
-**2. DAST (Dynamic Application Security Testing)**
-- Tests running application
-- Simulates attacks
-- Example tools: OWASP ZAP, Burp Suite
+**Also: secret scanning** - finds passwords and tokens committed by mistake (e.g. GitHub secret scanning, TruffleHog, git-secrets).
 
-**3. Dependency Scanning**
-- Checks libraries for known vulnerabilities
-- Matches against CVE database
-- Example tools: OWASP Dependency-Check, Snyk
-
-**4. Container Scanning**
-- Scans Docker images
-- Checks base image and layers
-- Example tools: Trivy, Clair, Snyk
-
-**5. Secret Scanning**
-- Finds hardcoded secrets
-- Scans commits and code
-- Example tools: git-secrets, TruffleHog
+**Common mix-up:** dependency scanning is **SCA**, not SAST. SAST reads the code **you** wrote; SCA checks the libraries **others** wrote.
 
 ---
 
-### What We'll Use in Lesson 4.14
+### The Tools We'll Use
 
-**OWASP Dependency-Check**
-
-**Why this tool?**
-- ✅ Free and open-source
-- ✅ Easy to integrate with CircleCI
-- ✅ Works with Java/Maven
-- ✅ Beginner-friendly
-- ✅ Well-documented
-- ✅ Widely used in industry
-
-**What it does:**
-1. Scans your `pom.xml`
-2. Identifies all dependencies
-3. Checks against National Vulnerability Database
-4. Generates HTML report
-5. Fails build if critical vulnerabilities found
-
----
-
-### OWASP Dependency-Check Example
-
-**Command:**
-```bash
-mvn org.owasp:dependency-check-maven:check
-```
-
-**Report includes:**
-- List of all dependencies
-- Which have vulnerabilities
-- CVE details
-- Recommended fixes
-- Risk scores
-
----
-
-### Example Vulnerability Report
-
-```
-==================================================
-OWASP Dependency-Check Report
-==================================================
-
-HIGH SEVERITY VULNERABILITIES:
-
-1. spring-core-5.3.10.jar
-   CVE: CVE-2021-22096
-   Severity: HIGH (7.5)
-   Description: Spring Framework RCE vulnerability
-   Recommendation: Update to 5.3.16 or later
-
-2. postgresql-42.2.5.jar
-   CVE: CVE-2022-31197
-   Severity: MEDIUM (6.5)
-   Description: SQL injection in PostgreSQL JDBC
-   Recommendation: Update to 42.5.0 or later
-
-SUMMARY:
-Total Dependencies: 47
-Vulnerable Dependencies: 2
-Critical: 0
-High: 1
-Medium: 1
-Low: 0
-==================================================
-```
-
----
-
-### Integration with CI/CD (Preview for Lesson 4.14)
-
-```yml
-jobs:
-  security_scan:
-    docker:
-      - image: cimg/openjdk:21.0
-    steps:
-      - checkout
-      - run:
-          name: Run Dependency Check
-          command: mvn org.owasp:dependency-check-maven:check
-      - store_artifacts:
-          path: target/dependency-check-report.html
-```
+| Lesson | Tool | Type | Where it runs |
+|---|---|---|---|
+| **4.13 (today)** | **Snyk** | SCA | On the Snyk website, then as a CircleCI job |
+| 4.14 | **OSV-Scanner** (Google) | SCA | GitHub Actions |
+| 4.14 | **OWASP ZAP** | DAST | GitHub Actions, against your Railway app |
 
 ---
 
@@ -1059,11 +975,11 @@ Code Push
 └────────┬────────┘
          ↓
 ┌─────────────────┐
-│  SAST Scan      │ ← Check source code
+│  SAST Scan      │ ← Check your source code (e.g. Semgrep)
 └────────┬────────┘
          ↓
 ┌─────────────────┐
-│ Dependency Scan │ ← Check libraries (OWASP)
+│ Dependency Scan │ ← Check libraries - SCA (Snyk)
 └────────┬────────┘
          ↓
 ┌─────────────────┐
@@ -1071,7 +987,7 @@ Code Push
 └────────┬────────┘
          ↓
 ┌─────────────────┐
-│ Container Scan  │ ← Check Docker image
+│ Container Scan  │ ← Check Docker image (e.g. Trivy)
 └────────┬────────┘
          ↓
 ┌─────────────────┐
@@ -1080,6 +996,429 @@ Code Push
 
 If ANY scan fails → Pipeline stops!
 ```
+
+---
+
+## Part 7 - Case Study: The Trivy Supply-Chain Attack (2026)
+
+Security tools are software too - and attackers know it.
+
+### What Happened
+
+**Trivy** is one of the most popular open-source vulnerability scanners. Teams run it in their pipelines to keep vulnerable code **out** of production.
+
+On **19 March 2026**, attackers turned it into the attack:
+
+| What | How |
+|---|---|
+| Malicious Trivy release | A poisoned **v0.69.4** was published as a normal release; poisoned Docker image tags followed |
+| GitHub Action hijacked | Almost all **version tags** of the official `trivy-action` (75+ of 77) were **force-pushed** to point at malicious code |
+| What the malware did | Ran inside CI pipelines and **stole secrets**: cloud, Docker registry, Git, SSH, Kubernetes and npm tokens |
+| Exposure window | From a few hours (the release) to about 12 hours (the action tags) - any pipeline run in that window could be hit |
+
+**Who was hit?** Pipelines that referenced Trivy by a **tag**, such as `uses: aquasecurity/trivy-action@0.28.0`. The tag name didn't change - but the code behind it did.
+
+**Who was safe?** Pipelines that pinned the action to a **full commit SHA**. Their reference pointed at the old, trusted code, which the attackers could not change.
+
+---
+
+### Tags Can Move. Hashes Can't.
+
+| Reference | Example | Can it change? |
+|---|---|---|
+| Version tag | `v0.75.0`, `:latest`, `@v4` | **Yes** - whoever controls the repository can move it to different code |
+| Full commit SHA | `@3d3c42e5aac5ba805825da76410c181273ba90b1` | **No** - a different commit has a different SHA |
+| Image digest | `image@sha256:9f2c...` | **No** - a different image has a different digest |
+| File checksum | `sha256sum -c` against a known hash | **No** - one changed byte gives a different hash |
+
+**A tag is a label you trust. A hash is proof of exactly what you're running.**
+
+**In GitHub Actions:**
+
+```yaml
+# Mutable - the tag can be moved to different code
+- uses: actions/checkout@v7
+
+# Immutable - pinned to one exact commit (comment keeps it readable)
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+```
+
+**For a downloaded tool**, compare the file with a known SHA-256 hash before running it - you'll see this in today's CircleCI job:
+
+```bash
+echo "<expected-sha256>  snyk" | sha256sum -c -
+```
+
+---
+
+### Lessons for Every Pipeline
+
+1. **Pin by hash, not by tag** - commit SHAs for actions, digests for images, checksums for downloads
+2. **Update pins deliberately** - a new hash is a reviewed change, not something that happens silently
+3. **Don't rush to brand-new releases** - waiting a few days lets the community spot a bad release
+4. **Least privilege** - give secrets only to the jobs that need them. A scan job that holds no secrets has nothing to steal
+5. **Assume breach and rotate** - after an incident, affected teams had to rotate **every** secret their pipelines could reach
+6. **Your tools are part of your supply chain** - scanners, CLIs, actions and orbs deserve the same care as your dependencies
+
+**Shift-left connection:** the attack came through the **pipeline**, not the application code. DevSecOps protects the pipeline as well as the app.
+
+<!-- Discussion prompts (optional, 5 min): Which references in your own .circleci/config.yml are tags? (cimg images, the Railway CLI in deploy). Which jobs hold secrets? (publish: Docker Hub token via context; deploy: RAILWAY_TOKEN). Pinning images by digest stops automatic security updates - teams use tools like Renovate or Dependabot to update pinned digests. Source: https://www.aquasec.com/blog/trivy-supply-chain-attack-what-you-need-to-know -->
+
+---
+
+## Part 8 - Activity 3: Scan Your Project with Snyk (45 min)
+
+You'll use **Snyk**, a popular SCA tool, in two ways:
+
+| Part | Where | What you get |
+|---|---|---|
+| **A** | Snyk website | Snyk scans your GitHub repository and shows every issue with fix advice |
+| **B** | CircleCI | A `snyk_scan` job that **blocks publish and deploy** when a HIGH or CRITICAL issue is found |
+
+**Your pipeline after Part B:**
+
+```
+build ──► test ──────┐
+                     ├──► publish ──► deploy
+snyk_scan ───────────┘
+```
+
+<!-- INSTRUCTOR: run Part B on devops-demo before class. If Spring Boot's own dependencies have a HIGH issue that day, snyk_scan fails before Step 7 - use it as the first example (read the fix advice) or temporarily use --severity-threshold=critical. The Snyk CLI version and SHA-256 come from https://downloads.snyk.io/cli/stable/release.json (v1.1308.1, checked 2026-10-20); update both together. Check the current Snyk Free plan test limits. -->
+
+---
+
+### Part A - Snyk Website
+
+#### Step 1: Create a Free Snyk Account
+
+1. Go to [https://snyk.io](https://snyk.io) and click **Sign up**
+2. Choose **GitHub** and authorise Snyk
+3. You're on the **Free** plan - no credit card needed
+
+#### Step 2: Import Your devops-demo Repository
+
+1. In [https://app.snyk.io](https://app.snyk.io), click **Add project** (or **Add** → **GitHub**)
+2. If asked, allow Snyk to access your GitHub repositories
+3. Select your **devops-demo** repository
+4. Click **Add selected repositories**
+
+Snyk finds `pom.xml`, works out every dependency - including transitive ones - and checks them against its vulnerability database. This takes a minute or two.
+
+#### Step 3: Read the Results
+
+Open **Projects** → **devops-demo** → `pom.xml`.
+
+| What you see | Meaning |
+|---|---|
+| **C / H / M / L** counts | Number of Critical, High, Medium and Low issues |
+| Issue card | Vulnerability type (e.g. "Denial of Service"), the library and version |
+| **Introduced through** | The path from **your** dependency to the vulnerable library |
+| **Fixed in** / **Upgrade** | The version that fixes it |
+| **Snyk ID / CVE** | Links to full details, CVSS score and references |
+
+**Few or no issues?** Good - devops-demo has only two direct dependencies, and Spring Boot keeps them up to date. You'll add a vulnerable one in Part B.
+
+**Good to know:**
+- Snyk **re-tests imported projects regularly** and can email you about new vulnerabilities - even when you don't push any code
+- Snyk may offer to **open a pull request** that upgrades a vulnerable dependency for you
+
+**Limitation:** the website scan doesn't **stop** anything. A vulnerable version could still be built, published and deployed by CircleCI. For that, the scan must be **inside the pipeline**.
+
+---
+
+### Part B - Snyk in Your CircleCI Pipeline
+
+#### Step 4: Add Your Snyk Token to CircleCI
+
+1. In Snyk, click your name (bottom left) → **Account settings**
+2. In **General**, find **Auth Token** and click to reveal the **KEY** - copy it
+3. In CircleCI: your **devops-demo** project → **Project Settings** → **Environment Variables** → **Add Environment Variable**
+4. **Name:** `SNYK_TOKEN` - **Value:** your token
+
+**Treat this token like a password** - never put it in your code or `config.yml`. The Snyk CLI reads `SNYK_TOKEN` automatically, so no login step is needed.
+
+#### Step 5: Add the `snyk_scan` Job
+
+Open `.circleci/config.yml` and add this job after `test`:
+
+```yml
+  # ==========================================
+  # SNYK_SCAN JOB - Snyk: scan Maven dependencies
+  # ==========================================
+  snyk_scan:
+    docker:
+      - image: cimg/openjdk:21.0
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - maven-deps-{{ checksum "pom.xml" }}
+            - maven-deps-
+      - run:
+          name: Install Snyk CLI (pinned by SHA-256)
+          command: |
+            mkdir -p $HOME/bin
+            curl -sSfL https://downloads.snyk.io/cli/v1.1308.1/snyk-linux -o $HOME/bin/snyk
+            echo "a8b2e420af6d8e61bf1d367c064475ccf699d767fc8763efb0072b9cac250f9a  $HOME/bin/snyk" | sha256sum -c -
+            chmod +x $HOME/bin/snyk
+            $HOME/bin/snyk --version
+      - run:
+          name: Snyk dependency scan - fail on HIGH or CRITICAL
+          command: $HOME/bin/snyk test --severity-threshold=high
+```
+
+**What this does:**
+
+| Step | Purpose |
+|---|---|
+| `cimg/openjdk:21.0` | Java and Maven - Snyk runs Maven to list every dependency |
+| `restore_cache` | Reuses Maven downloads from the build job - faster |
+| Install Snyk CLI | Downloads Snyk `v1.1308.1` and **checks its SHA-256 hash** before running it (Part 7!) |
+| `snyk test --severity-threshold=high` | Scans `pom.xml`; **fails** the job on any HIGH or CRITICAL issue |
+
+You don't need to work out hashes yourself - copy this job as it is. Your instructor updates the version and hash when a new Snyk release is adopted.
+
+#### Step 6: Update the Workflow
+
+```yml
+workflows:
+  build_test_scan_publish_deploy:
+    jobs:
+      - build
+      - snyk_scan
+      - test:
+          requires:
+            - build
+      - publish:
+          context: docker-hub
+          requires:
+            - test
+            - snyk_scan
+      - deploy:
+          requires:
+            - publish
+```
+
+**What changed?**
+- `snyk_scan` has no `requires` - it starts with `build`, so you get feedback within minutes (shift left!)
+- `publish` now waits for **both** `test` and `snyk_scan`
+- If `snyk_scan` fails, nothing is pushed to Docker Hub and Railway keeps the previous version
+
+**Complete updated config.yml:**
+
+```yml
+version: 2.1
+
+jobs:
+  build:
+    docker:
+      - image: cimg/openjdk:21.0
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - maven-deps-{{ checksum "pom.xml" }}
+            - maven-deps-
+      - run:
+          name: Install dependencies and build
+          command: |
+            echo "Building the application..."
+            mvn clean install -DskipTests
+      - save_cache:
+          paths:
+            - ~/.m2
+          key: maven-deps-{{ checksum "pom.xml" }}
+      - persist_to_workspace:
+          root: .
+          paths:
+            - target/*.jar
+
+  test:
+    docker:
+      - image: cimg/openjdk:21.0
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - maven-deps-{{ checksum "pom.xml" }}
+            - maven-deps-
+      - run:
+          name: Run tests
+          command: |
+            echo "Running tests..."
+            mvn test
+      - store_test_results:
+          path: target/surefire-reports
+      - store_artifacts:
+          path: target/surefire-reports
+
+  # ==========================================
+  # SNYK_SCAN JOB - Snyk: scan Maven dependencies
+  # ==========================================
+  snyk_scan:
+    docker:
+      - image: cimg/openjdk:21.0
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - maven-deps-{{ checksum "pom.xml" }}
+            - maven-deps-
+      - run:
+          name: Install Snyk CLI (pinned by SHA-256)
+          command: |
+            mkdir -p $HOME/bin
+            curl -sSfL https://downloads.snyk.io/cli/v1.1308.1/snyk-linux -o $HOME/bin/snyk
+            echo "a8b2e420af6d8e61bf1d367c064475ccf699d767fc8763efb0072b9cac250f9a  $HOME/bin/snyk" | sha256sum -c -
+            chmod +x $HOME/bin/snyk
+            $HOME/bin/snyk --version
+      - run:
+          name: Snyk dependency scan - fail on HIGH or CRITICAL
+          command: $HOME/bin/snyk test --severity-threshold=high
+
+  publish:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - setup_remote_docker
+      - run:
+          name: Build Docker image
+          command: |
+            echo "Building Docker image..."
+            docker build -t $DOCKER_USERNAME/devops-demo:latest .
+      - run:
+          name: Push to Docker Hub
+          command: |
+            echo "Logging in to Docker Hub..."
+            echo $DOCKER_TOKEN | docker login -u $DOCKER_USERNAME --password-stdin
+            echo "Pushing image to Docker Hub..."
+            docker push $DOCKER_USERNAME/devops-demo:latest
+
+  deploy:
+    docker:
+      - image: cimg/node:lts
+    steps:
+      - run:
+          name: Redeploy latest image on Railway
+          command: |
+            echo "Asking Railway to redeploy the latest image..."
+            npx --yes @railway/cli redeploy --service "$RAILWAY_SERVICE_ID" --yes
+            echo "Railway is now pulling $DOCKER_USERNAME/devops-demo:latest from Docker Hub."
+
+workflows:
+  build_test_scan_publish_deploy:
+    jobs:
+      - build
+      - snyk_scan
+      - test:
+          requires:
+            - build
+      - publish:
+          context: docker-hub
+          requires:
+            - test
+            - snyk_scan
+      - deploy:
+          requires:
+            - publish
+```
+
+```bash
+git add .circleci/config.yml
+git commit -m "Add Snyk dependency scan"
+git push origin main
+```
+
+In CircleCI, `build` and `snyk_scan` start together. Click **snyk_scan** → **Snyk dependency scan**:
+
+```
+Testing /home/circleci/project...
+
+Package manager:   maven
+Target file:       pom.xml
+Project name:      com.example:devops-demo
+
+✔ Tested 38 dependencies for known issues, no vulnerable paths found.
+```
+
+All jobs green ✅ - the scan passed and the app was deployed.
+
+#### Step 7: Break It - Add a Vulnerable Dependency
+
+Add this inside `<dependencies>` in `pom.xml`:
+
+```xml
+<!-- VULNERABLE: Text4Shell (CVE-2022-42889) - for learning only -->
+<dependency>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-text</artifactId>
+    <version>1.9</version>
+</dependency>
+```
+
+**Why this library?** `commons-text` 1.9 has **CVE-2022-42889 ("Text4Shell")** - CRITICAL, remote code execution through specially crafted text, just like Log4Shell (Part 5). Fixed in 1.10.0.
+
+```bash
+git add pom.xml
+git commit -m "Add commons-text 1.9 (vulnerable - testing the security gate)"
+git push origin main
+```
+
+**Expected result:**
+- ✅ `build` and `test` pass - the code works, it just isn't safe
+- ❌ `snyk_scan` fails
+- ⏹ `publish` and `deploy` **never run** - Docker Hub and Railway keep the safe version
+
+**Read the output** - it looks similar to this:
+
+```
+Issues to fix by upgrading:
+
+  Upgrade org.apache.commons:commons-text@1.9 to org.apache.commons:commons-text@1.10.0 to fix
+  ✗ Arbitrary Code Execution [Critical Severity][https://security.snyk.io/vuln/SNYK-JAVA-...] in org.apache.commons:commons-text@1.9
+    introduced by org.apache.commons:commons-text@1.9
+```
+
+| Part | Meaning |
+|---|---|
+| **Upgrade ... to fix** | Snyk's fix advice - the smallest upgrade that removes the issue |
+| **[Critical Severity]** | At or above our threshold, so the job fails |
+| **Link** | Full details: CVE ID, CVSS score, references |
+| **introduced by** | The dependency path - here, you added it directly |
+
+Your Snyk website project (Part A) shows the same issue after Snyk's next re-test.
+
+#### Step 8: Fix It
+
+Update the version - use the latest release, not just the minimum fix (check [mvnrepository](https://mvnrepository.com/artifact/org.apache.commons/commons-text)):
+
+```xml
+<version>1.12.0</version>
+```
+
+```bash
+git add pom.xml
+git commit -m "Fix: update commons-text to 1.12.0 (CVE-2022-42889)"
+git push origin main
+```
+
+All jobs green ✅ - including `deploy`.
+
+**Clean up:** devops-demo doesn't use `commons-text`. Remove the dependency, commit and push.
+
+---
+
+### Discuss
+
+1. `build` and `test` passed with `commons-text` 1.9. Why isn't passing tests enough?
+2. The Snyk website already showed vulnerabilities. Why add the scan to CircleCI as well?
+3. `snyk_scan` doesn't wait for `build`. Why is that a good example of shift-left?
+4. Which jobs in your pipeline can see your Docker Hub and Railway tokens? Which ones don't need to?
+
+<!-- Answers: 1) Tests check behaviour, not known vulnerabilities - vulnerable code can work perfectly. 2) The website only reports; the pipeline job blocks publish/deploy. 3) Feedback in minutes, before anything is built or published. 4) publish (docker-hub context) and deploy (RAILWAY_TOKEN). Project env vars like SNYK_TOKEN/RAILWAY_TOKEN are visible to all jobs - moving them into contexts limits that (least privilege, Part 7). -->
 
 ---
 
@@ -1092,7 +1431,9 @@ If ANY scan fails → Pipeline stops!
 3. ✅ **Pipeline Risks** include hardcoded secrets, vulnerable dependencies, and insecure containers
 4. ✅ **Secrets Management** uses environment variables, never hardcoded values
 5. ✅ **Dependency Vulnerabilities** are tracked as CVEs and need automated scanning
-6. ✅ **Security Scanning Tools** automate vulnerability detection in CI/CD
+6. ✅ **Security Scanning Tools** - SAST (your code), DAST (running app), SCA (dependencies), container scanning
+7. ✅ **Supply-chain security** - the Trivy attack showed why tools are pinned by hash, not by tag
+8. ✅ **Snyk** scans dependencies on its website and as a CircleCI gate that blocks publish and deploy
 
 ---
 
@@ -1121,16 +1462,14 @@ If ANY scan fails → Pipeline stops!
 ### Preparing for Lesson 4.14
 
 **In the next lesson, you will:**
-1. Add dependency scanning to your CircleCI pipeline
-2. Run security scans on your devops-demo project
-3. Read vulnerability reports
-4. Fix a vulnerability by updating a dependency
-5. See how security checks prevent vulnerable code from deploying
+1. Add **OSV-Scanner** (Google) as a GitHub Actions workflow - pinned by commit SHA
+2. See its results in your repository's **Security** tab
+3. Handle a finding by fixing it or ignoring it - with a reason and an expiry date
+4. Run an **OWASP ZAP** DAST scan against your live Railway app
 
-**What to review before next lesson:**
-- Your CircleCI config from Lesson 4.12
-- Your devops-demo project structure
-- How to edit `.circleci/config.yml`
+**Before next lesson:**
+- Make sure today's pipeline is green: build, snyk_scan, test, publish, deploy
+- Have your Railway app URL ready
 
 ---
 
@@ -1142,6 +1481,8 @@ If ANY scan fails → Pipeline stops!
 - [National Vulnerability Database](https://nvd.nist.gov/)
 - [CVE Database](https://cve.mitre.org/)
 - [OWASP Top 10](https://owasp.org/www-project-top-ten/)
-- [OWASP Dependency-Check](https://owasp.org/www-project-dependency-check/)
-- [Snyk](https://snyk.io/learn/)
+- [Snyk Learn](https://snyk.io/learn/)
+- [Snyk CLI Documentation](https://docs.snyk.io/developer-tools/snyk-cli)
+- [Trivy supply-chain attack - Aqua Security](https://www.aquasec.com/blog/trivy-supply-chain-attack-what-you-need-to-know)
+- [GitHub: Security hardening for GitHub Actions (pin actions to a full commit SHA)](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions)
 - [GitHub Security Features](https://docs.github.com/en/code-security)
