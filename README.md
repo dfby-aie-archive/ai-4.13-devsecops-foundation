@@ -21,15 +21,15 @@
 | Duration | What | How or Why |
 |----------|------|------------|
 | 10 min | Warm up | Intro and lesson overview, why security matters in DevOps |
-| 15 min | Part 1: What is DevSecOps? | Definition, traditional vs DevSecOps, principles, real-world Equifax breach |
-| 10 min | Activity 1 — Real-world discussion | Discuss Equifax breach and what DevSecOps could have prevented |
+| 15 min | Part 1: What is DevSecOps? | Definition, traditional vs DevSecOps, principles, real-world example: Trivy supply-chain attack (2026) |
+| 10 min | Activity 1 — Real-world discussion | Discuss the Trivy attack: why target a security tool, tags vs commit SHAs, which secrets their own pipeline holds |
 | 15 min | Part 2: Shift-left security | What shift-left means, cost table, benefits, shift-left in practice, examples |
 | 15 min | Part 3: Pipeline security risks | Hardcoded secrets, vulnerable dependencies, insecure images, attack scenarios |
 | 15 min | Part 4: Secrets management | What secrets are, horror stories, environment variables, best practices |
 | 10 min | Activity 2 — Spot the security mistake | Learners identify security mistakes in code and config snippets |
 | 15 min | Part 5: Dependency vulnerabilities | CVEs, Log4Shell example, transitive dependencies, best practices |
 | 10 min | Part 6: Security scanning types | SAST, DAST, SCA and container scanning table; tools used in 4.13 and 4.14 |
-| 15 min | Part 7: Case study — Trivy supply-chain attack | What happened, tags vs hashes, pinning by commit SHA / digest / checksum, least privilege |
+| 15 min | Part 7: Supply-chain security — lessons from the Trivy attack | Who was hit and who was safe, tags vs hashes, pinning by commit SHA / digest / checksum, least privilege |
 | 45 min | Part 8: Activity 3 — Snyk | Part A: import devops-demo on the Snyk website and read results; Part B: `snyk_scan` CircleCI job gating publish, break and fix with commons-text 1.9 |
 | 5 min | Recap and wrap up | Key takeaways, preview Lesson 4.14 (OSV-Scanner, OWASP ZAP), Q&A |
 | **Total** | | **180 min** |

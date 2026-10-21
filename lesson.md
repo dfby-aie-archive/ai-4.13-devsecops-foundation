@@ -95,21 +95,25 @@ Developer → Write Code (with security tools running) → Auto Security Checks 
 
 ---
 
-### Real-World Example: Equifax Breach (2017)
+### Real-World Example: The Trivy Supply-Chain Attack (2026)
 
-**What happened:**
-- Equifax had a known vulnerability in Apache Struts (a Java library)
-- Patch was available for 2 months
-- They didn't update the dependency
-- Hackers exploited the vulnerability
-- **Result:** 147 million people's data stolen
+**Trivy** is one of the most popular open-source security scanners. Thousands of teams run it in their CI/CD pipelines to keep vulnerable code **out** of production.
 
-**Cost:**
-- Over $1.4 billion in settlements
-- Massive reputation damage
-- Could have been prevented with dependency scanning in CI/CD pipeline
+**What happened (19 March 2026):**
+- Attackers published a **malicious Trivy release** (v0.69.4) that looked like a normal update - poisoned Docker image tags followed a few days later
+- They **force-pushed** almost all version tags of the official `trivy-action` for GitHub Actions (75+ of 77) to point at malicious code
+- Pipelines that ran Trivy during the attack ran **malware that stole secrets**: cloud, Docker registry, Git, SSH, Kubernetes and npm tokens
+- The vulnerability was tracked as **CVE-2026-33634**
 
-**This is why DevSecOps matters!**
+**Impact:**
+- Every affected team had to treat **all** secrets in their pipelines as stolen - and rotate them
+- A tool meant to **protect** the pipeline became the way **into** it
+
+**Who was safe?**
+- Teams that had pinned the action to a **full commit SHA** instead of a version tag - the attackers could move the tags, but not the commits
+- Jobs that held **no secrets** had nothing to steal
+
+**This is why DevSecOps matters!** Security isn't only about your application's code - your **pipeline** and the **tools** it runs are part of your attack surface. You'll look at how to protect against this in Part 7.
 
 ---
 
@@ -161,18 +165,18 @@ Developer → Write Code (with security tools running) → Auto Security Checks 
                          Security Feedback Loop
 ```
 
-**Reference image:**
-https://www.redhat.com/rhdc/managed-files/styles/wysiwyg_full_width/private/devsecops-lifecycle_1.png
-
 ---
 
 ### 🏃 Activity 1 — DevSecOps Real-World Discussion (10 min)
 
-Read the Equifax breach example above and discuss the following:
+Read the Trivy supply-chain attack example above and discuss the following:
 
-1. The patch for the Apache Struts vulnerability was available for 2 months before the breach. What process failure do you think allowed this to happen?
-2. If Equifax had dependency scanning running in their CI/CD pipeline, how would the outcome have been different?
-3. Think about a company you use daily (banking app, social media, e-commerce). What kind of sensitive data do they hold, and what would the impact of a breach be?
+1. Trivy is a **security tool**. Why would attackers target a security tool instead of attacking an application directly?
+2. Pipelines that used the action by **version tag** were hit; pipelines pinned to a **full commit SHA** were not. Why do you think that made the difference?
+3. The malware stole the secrets available to the pipeline. Which secrets does **your** devops-demo pipeline hold (Lessons 4.7 and 4.12)? What could an attacker do with them?
+4. Affected teams had to rotate **every** secret their pipelines could reach. How could a team limit the damage **before** an attack like this happens?
+
+<!-- Discussion hints: 1) One compromised tool reaches thousands of pipelines - and CI pipelines hold powerful secrets. 2) Tags can be moved to different code; a commit SHA always points at the same code (covered in Part 7). 3) DOCKER_TOKEN (push any image to their Docker Hub repo) and RAILWAY_TOKEN (redeploy their production service). 4) Pin tools by hash, give secrets only to the jobs that need them, use short-lived/scoped tokens, know where every secret is so rotation is fast. -->
 
 > **Key takeaway:** Security failures are almost always process failures, not just technical ones.
 
@@ -999,26 +1003,16 @@ If ANY scan fails → Pipeline stops!
 
 ---
 
-## Part 7 - Case Study: The Trivy Supply-Chain Attack (2026)
+## Part 7 - Supply-Chain Security: Lessons from the Trivy Attack
 
-Security tools are software too - and attackers know it.
+In Part 1 you read how attackers turned **Trivy** - a security scanner - into a way to steal pipeline secrets. Now let's look at **why** some pipelines were hit and others weren't, and what you can do about it.
 
-### What Happened
+### Recap: Who Was Hit, Who Was Safe
 
-**Trivy** is one of the most popular open-source vulnerability scanners. Teams run it in their pipelines to keep vulnerable code **out** of production.
-
-On **19 March 2026**, attackers turned it into the attack:
-
-| What | How |
-|---|---|
-| Malicious Trivy release | A poisoned **v0.69.4** was published as a normal release; poisoned Docker image tags followed |
-| GitHub Action hijacked | Almost all **version tags** of the official `trivy-action` (75+ of 77) were **force-pushed** to point at malicious code |
-| What the malware did | Ran inside CI pipelines and **stole secrets**: cloud, Docker registry, Git, SSH, Kubernetes and npm tokens |
-| Exposure window | From a few hours (the release) to about 12 hours (the action tags) - any pipeline run in that window could be hit |
-
-**Who was hit?** Pipelines that referenced Trivy by a **tag**, such as `uses: aquasecurity/trivy-action@0.28.0`. The tag name didn't change - but the code behind it did.
-
-**Who was safe?** Pipelines that pinned the action to a **full commit SHA**. Their reference pointed at the old, trusted code, which the attackers could not change.
+| Pipeline used... | Example | Result |
+|---|---|---|
+| A **version tag** | `uses: aquasecurity/trivy-action@0.28.0` | ❌ Hit - the tag name stayed the same, but the code behind it changed |
+| A **full commit SHA** | `uses: aquasecurity/trivy-action@<40-character SHA>` | ✅ Safe - the SHA still pointed at the old, trusted code |
 
 ---
 
