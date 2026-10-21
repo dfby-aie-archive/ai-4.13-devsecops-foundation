@@ -9,7 +9,7 @@ By the end of this lesson, you will be able to:
 3. **Identify** common security risks in CI/CD pipelines and dependency vulnerabilities
 4. **Apply** secrets management best practices to protect sensitive credentials
 5. **Explain** why pipelines should pin tools by immutable hashes, using the 2026 Trivy supply-chain attack
-6. **Scan** dependencies with Snyk - on the Snyk website and as a CircleCI security gate
+6. **Scan** dependencies (SCA) and code (SAST) with Snyk - on the Snyk website and as CircleCI security gates
 
 ---
 
@@ -1062,22 +1062,34 @@ echo "<expected-sha256>  snyk" | sha256sum -c -
 
 ## Part 8 - Activity 3: Scan Your Project with Snyk (45 min)
 
-You'll use **Snyk**, a popular SCA tool, in two ways:
+**Your role today: the DevSecOps team.** Your job is to **find** security problems, **stop** them from reaching production, and **report** them to the developers. Fixing application code is the developers' job - not today's activity.
+
+You'll use **Snyk** for two kinds of scanning:
+
+| Scan | Type (Part 6) | What it reads |
+|---|---|---|
+| **Snyk Open Source** | **SCA** | `pom.xml` - the libraries you depend on |
+| **Snyk Code** | **SAST** | Your own Java source code in `src/` |
+
+...in two places:
 
 | Part | Where | What you get |
 |---|---|---|
 | **A** | Snyk website | Snyk scans your GitHub repository and shows every issue with fix advice |
-| **B** | CircleCI | A `snyk_scan` job that **blocks publish and deploy** when a HIGH or CRITICAL issue is found |
+| **B** | CircleCI | `snyk_scan` (SCA) and `snyk_code` (SAST) jobs that **block publish and deploy** when HIGH or CRITICAL issues are found |
+| **C** | GitHub | A **security ticket** for the developers |
 
 **Your pipeline after Part B:**
 
 ```
 build ──► test ──────┐
-                     ├──► publish ──► deploy
-snyk_scan ───────────┘
+snyk_scan  (SCA) ────┼──► publish ──► deploy
+snyk_code  (SAST) ───┘
 ```
 
-<!-- INSTRUCTOR: run Part B on devops-demo before class. If Spring Boot's own dependencies have a HIGH issue that day, snyk_scan fails before Step 8 - use it as the first example (read the fix advice) or temporarily set severity-threshold: critical. Orb snyk/snyk@2.3.0 (latest version published in the CircleCI orb registry, 1 Apr 2025, checked 2026-10-21 - GitHub has newer tags 2.3.1-2.3.3 that are not published to the registry; use only registry versions) with cli-version 1.1308.1 (https://downloads.snyk.io/cli/stable/release.json, 2026-10-20). Students must enable Organization Settings > Security > Allow Uncertified Orbs in their own CircleCI organization. Check the current Snyk Free plan test limits. -->
+**Expect the pipeline to fail.** devops-demo's dependencies already contain HIGH and CRITICAL vulnerabilities. That's the point: the security gate **stops** the release. You'll read what it found and report it.
+
+<!-- INSTRUCTOR: run Part B on devops-demo before class and note which HIGH/CRITICAL issues snyk_scan reports (and whether snyk_code finds anything) so you can talk through them. Orb snyk/snyk@2.3.0 (latest version published in the CircleCI orb registry, 1 Apr 2025, checked 2026-10-21 - GitHub has newer tags 2.3.1-2.3.3 that are not published to the registry; use only registry versions) with cli-version 1.1308.1 (https://downloads.snyk.io/cli/stable/release.json, 2026-10-20). Students must enable Allow Uncertified Orbs in their own CircleCI organization, and Snyk Code in their Snyk organization. Check the current Snyk Free plan limits for Open Source and Code tests. -->
 
 ---
 
@@ -1110,11 +1122,21 @@ Open **Projects** → **devops-demo** → `pom.xml`.
 | **Fixed in** / **Upgrade** | The version that fixes it |
 | **Snyk ID / CVE** | Links to full details, CVSS score and references |
 
-**Few or no issues?** Good - devops-demo has only two direct dependencies, and Spring Boot keeps them up to date. You'll add a vulnerable one in Part B.
+**Lots of issues?** That's normal. devops-demo has only two direct dependencies, but they pull in dozens of transitive libraries - and some of them have known vulnerabilities.
 
 **Good to know:**
 - Snyk **re-tests imported projects regularly** and can email you about new vulnerabilities - even when you don't push any code
 - Snyk may offer to **open a pull request** that upgrades a vulnerable dependency for you
+
+#### Step 4: Turn On Snyk Code (SAST)
+
+Snyk Code is switched off by default.
+
+1. In Snyk, open **Settings** (for your organization) → **Snyk Code**
+2. Turn on **Enable Snyk Code** and save
+3. Go back to **Projects** → devops-demo. After the next re-test (or **Retest now**), a **Code analysis** project appears next to `pom.xml`
+
+Open it to see issues found in **your** Java code - for example unsafe input handling - each with the file, the line and an explanation.
 
 **Limitation:** the website scan doesn't **stop** anything. A vulnerable version could still be built, published and deployed by CircleCI. For that, the scan must be **inside the pipeline**.
 
@@ -1122,7 +1144,7 @@ Open **Projects** → **devops-demo** → `pom.xml`.
 
 ### Part B - Snyk in Your CircleCI Pipeline
 
-#### Step 4: Add Your Snyk Token to CircleCI
+#### Step 5: Add Your Snyk Token to CircleCI
 
 1. In Snyk, click your name (bottom left) → **Account settings**
 2. In **General**, find **Auth Token** and click to reveal the **KEY** - copy it
@@ -1131,7 +1153,7 @@ Open **Projects** → **devops-demo** → `pom.xml`.
 
 **Treat this token like a password** - never put it in your code or `config.yml`. The Snyk orb reads it from `SNYK_TOKEN` automatically.
 
-#### Step 5: Allow Partner Orbs in CircleCI
+#### Step 6: Allow Partner Orbs in CircleCI
 
 We'll install Snyk with an **orb** - a reusable package of CircleCI configuration. Snyk publishes an official orb, `snyk/snyk`.
 
@@ -1143,7 +1165,7 @@ CircleCI only **certifies** orbs it writes itself. Orbs from partners like Snyk 
 
 **Is that safe?** You're deciding to trust **Snyk's** orb, published under Snyk's own namespace - and in the next step you pin it to an exact version that can never change. In a company, a security or platform team usually makes this decision for everyone.
 
-#### Step 6: Add the Snyk Orb and the `snyk_scan` Job
+#### Step 7: Add the Snyk Orb and the `snyk_scan` Job
 
 At the top of `.circleci/config.yml`, under `version: 2.1`, add:
 
@@ -1202,7 +1224,35 @@ Remember Part 7: **tags can move, hashes can't**. An orb version is closer to a 
 - The orb downloads the CLI's checksum from the same Snyk server as the CLI. That catches broken or tampered downloads in transit - but not a compromised Snyk server. Pinning the orb and CLI versions, and not rushing to brand-new releases, reduce that risk
 - Allowing uncertified orbs allows **any** partner or community orb in your organization. Keep using only orbs from publishers you trust, pinned to full versions
 
-#### Step 7: Update the Workflow
+#### Step 8: Add the `snyk_code` Job (SAST)
+
+`snyk_scan` reads `pom.xml`. To analyse **your own code**, add a second job that runs **Snyk Code**:
+
+```yml
+  # ==========================================
+  # SNYK_CODE JOB - Snyk Code: static analysis (SAST) of src/
+  # ==========================================
+  snyk_code:
+    docker:
+      - image: cimg/openjdk:21.0
+    steps:
+      - checkout
+      - snyk/scan:
+          command: code test
+          severity-threshold: high
+          cli-version: 1.1308.1
+          monitor-on-build: false
+```
+
+| Line | Purpose |
+|---|---|
+| `command: code test` | Runs `snyk code test` - static analysis of the source code, instead of the default `snyk test` (dependencies) |
+| `severity-threshold: high` | Fails the job on HIGH issues (Snyk Code uses Low, Medium and High) |
+| No `restore_cache` | Snyk Code reads the source files directly - it doesn't need Maven |
+
+**Needs Snyk Code turned on** (Step 4) - otherwise the job fails with a message that Snyk Code is not enabled.
+
+#### Step 9: Update the Workflow
 
 ```yml
 workflows:
@@ -1210,6 +1260,7 @@ workflows:
     jobs:
       - build
       - snyk_scan
+      - snyk_code
       - test:
           requires:
             - build
@@ -1218,14 +1269,15 @@ workflows:
           requires:
             - test
             - snyk_scan
+            - snyk_code
       - deploy:
           requires:
             - publish
 ```
 
 **What changed?**
-- `snyk_scan` has no `requires` - it starts with `build`, so you get feedback within minutes (shift left!)
-- `publish` now waits for **both** `test` and `snyk_scan`
+- `snyk_scan` and `snyk_code` have no `requires` - they start with `build`, so you get feedback within minutes (shift left!)
+- `publish` now waits for `test`, `snyk_scan` **and** `snyk_code`
 - If `snyk_scan` fails, nothing is pushed to Docker Hub and Railway keeps the previous version
 
 **Complete updated config.yml:**
@@ -1296,6 +1348,20 @@ jobs:
           cli-version: 1.1308.1
           monitor-on-build: false
 
+  # ==========================================
+  # SNYK_CODE JOB - Snyk Code: static analysis (SAST) of src/
+  # ==========================================
+  snyk_code:
+    docker:
+      - image: cimg/openjdk:21.0
+    steps:
+      - checkout
+      - snyk/scan:
+          command: code test
+          severity-threshold: high
+          cli-version: 1.1308.1
+          monitor-on-build: false
+
   publish:
     docker:
       - image: cimg/base:stable
@@ -1333,6 +1399,7 @@ workflows:
     jobs:
       - build
       - snyk_scan
+      - snyk_code
       - test:
           requires:
             - build
@@ -1341,6 +1408,7 @@ workflows:
           requires:
             - test
             - snyk_scan
+            - snyk_code
       - deploy:
           requires:
             - publish
@@ -1348,97 +1416,104 @@ workflows:
 
 ```bash
 git add .circleci/config.yml
-git commit -m "Add Snyk dependency scan"
+git commit -m "Add Snyk dependency (SCA) and code (SAST) scans"
 git push origin main
 ```
 
-In CircleCI, `build` and `snyk_scan` start together. Click **snyk_scan** → **Snyk dependency scan**:
+#### Step 10: Watch the Security Gate Stop the Release
+
+In CircleCI, `build`, `snyk_scan` and `snyk_code` start together.
+
+**Expected result:**
+- ✅ `build` and `test` pass - the code compiles and the tests work
+- ❌ `snyk_scan` **fails** - HIGH or CRITICAL vulnerabilities in the dependencies
+- `snyk_code` passes or fails, depending on what Snyk Code finds in the source
+- ⏹ `publish` and `deploy` **never run** - nothing is pushed to Docker Hub, and Railway keeps running the last version
+
+**The gate did its job.** Code that works but isn't safe did not reach production.
+
+#### Step 11: Read the Findings
+
+Click **snyk_scan** → expand **Run Snyk**. The output looks similar to this:
 
 ```
 Testing /home/circleci/project...
 
-Package manager:   maven
-Target file:       pom.xml
-Project name:      com.example:devops-demo
+Tested 38 dependencies for known issues, found 6 issues, 9 vulnerable paths.
 
-✔ Tested 38 dependencies for known issues, no vulnerable paths found.
-```
-
-All jobs green ✅ - the scan passed and the app was deployed.
-
-#### Step 8: Break It - Add a Vulnerable Dependency
-
-Add this inside `<dependencies>` in `pom.xml`:
-
-```xml
-<!-- VULNERABLE: Text4Shell (CVE-2022-42889) - for learning only -->
-<dependency>
-    <groupId>org.apache.commons</groupId>
-    <artifactId>commons-text</artifactId>
-    <version>1.9</version>
-</dependency>
-```
-
-**Why this library?** `commons-text` 1.9 has **CVE-2022-42889 ("Text4Shell")** - CRITICAL, remote code execution through specially crafted text, just like Log4Shell (Part 5). Fixed in 1.10.0.
-
-```bash
-git add pom.xml
-git commit -m "Add commons-text 1.9 (vulnerable - testing the security gate)"
-git push origin main
-```
-
-**Expected result:**
-- ✅ `build` and `test` pass - the code works, it just isn't safe
-- ❌ `snyk_scan` fails
-- ⏹ `publish` and `deploy` **never run** - Docker Hub and Railway keep the safe version
-
-**Read the output** - it looks similar to this:
-
-```
 Issues to fix by upgrading:
 
-  Upgrade org.apache.commons:commons-text@1.9 to org.apache.commons:commons-text@1.10.0 to fix
-  ✗ Arbitrary Code Execution [Critical Severity][https://security.snyk.io/vuln/SNYK-JAVA-...] in org.apache.commons:commons-text@1.9
-    introduced by org.apache.commons:commons-text@1.9
+  Upgrade org.springframework.boot:spring-boot-starter-webmvc@x.y.z to ...@x.y.w to fix
+  ✗ Denial of Service (DoS) [High Severity][https://security.snyk.io/vuln/SNYK-JAVA-...] in org.apache.tomcat.embed:tomcat-embed-core@...
+    introduced by org.springframework.boot:spring-boot-starter-webmvc@x.y.z > ... > org.apache.tomcat.embed:tomcat-embed-core@...
 ```
+
+For each issue, note:
 
 | Part | Meaning |
 |---|---|
-| **Upgrade ... to fix** | Snyk's fix advice - the smallest upgrade that removes the issue |
-| **[Critical Severity]** | At or above our threshold, so the job fails |
+| **Library and version** | The vulnerable package - often a **transitive** dependency |
+| **Severity** | Critical or High - at or above our threshold |
+| **introduced by** | The path from **your** `pom.xml` to the vulnerable library |
+| **Upgrade ... to fix** | Snyk's fix advice - often a newer **Spring Boot** version |
 | **Link** | Full details: CVE ID, CVSS score, references |
-| **introduced by** | The dependency path - here, you added it directly |
 
-Your Snyk website project (Part A) shows the same issue after Snyk's next re-test.
+Then open **snyk_code**: Snyk Code issues show the **file**, **line** and **type** of problem in your own code.
 
-#### Step 9: Fix It
+**How would developers fix these?** Usually by upgrading the Spring Boot parent version in `pom.xml` (for SCA findings) or by changing the code (for SAST findings), then re-running the pipeline. That's **their** job - not today's.
 
-Update the version - use the latest release, not just the minimum fix (check [mvnrepository](https://mvnrepository.com/artifact/org.apache.commons/commons-text)):
+> **FYI - `fail-on-issues: false`:** the orb has a setting that lets the job pass even when it finds issues:
+>
+> ```yml
+>       - snyk/scan:
+>           fail-on-issues: false
+> ```
+>
+> The pipeline would then publish and deploy **known-vulnerable code**, and the gate would only print a report. **We don't use it in this course, and it's not good practice** - fix the issues, or accept a specific issue with a reviewed, time-limited exception (`snyk ignore` with a reason and an expiry), instead of switching the gate off.
 
-```xml
-<version>1.12.0</version>
+---
+
+### Part C - Report to the Developers
+
+In a real team, the DevSecOps team doesn't fix the application - it **reports** the problem so the developers can plan the fix.
+
+#### Step 12: Open a Security Ticket
+
+In your **devops-demo** repository on GitHub, open **Issues** → **New issue**:
+
+```markdown
+Title: [Security] Snyk found HIGH/CRITICAL vulnerabilities - release blocked
+
+**Found by:** CircleCI snyk_scan / snyk_code - pipeline #<number> (link)
+**Impact:** publish and deploy are blocked until these are fixed
+
+| Library / file | Severity | Issue | Fix advice |
+|---|---|---|---|
+| tomcat-embed-core x.y.z | High | Denial of Service | Upgrade Spring Boot to x.y.w |
+| ... | ... | ... | ... |
+
+**Suggested next step:** upgrade the Spring Boot parent version, re-run the pipeline.
 ```
 
-```bash
-git add pom.xml
-git commit -m "Fix: update commons-text to 1.12.0 (CVE-2022-42889)"
-git push origin main
-```
+Fill the table from **your** pipeline's output - the top 3-5 issues are enough.
 
-All jobs green ✅ - including `deploy`.
-
-**Clean up:** devops-demo doesn't use `commons-text`. Remove the dependency, commit and push.
+**A good security ticket:**
+- Says **what** was found, **where**, and **how serious** it is
+- Links to the **evidence** (the failed pipeline)
+- Includes the **fix advice**, so developers can act quickly
+- Doesn't paste secrets or tokens
 
 ---
 
 ### Discuss
 
-1. `build` and `test` passed with `commons-text` 1.9. Why isn't passing tests enough?
-2. The Snyk website already showed vulnerabilities. Why add the scan to CircleCI as well?
-3. `snyk_scan` doesn't wait for `build`. Why is that a good example of shift-left?
-4. Which jobs in your pipeline can see your Docker Hub and Railway tokens? Which ones don't need to?
+1. `build` and `test` passed, but the release was blocked. Why isn't passing tests enough?
+2. The Snyk website already showed the issues. Why put the scans **in the pipeline** as well?
+3. `snyk_scan` (SCA) and `snyk_code` (SAST) found different things. What does each one look at?
+4. A teammate suggests `fail-on-issues: false` "so we can keep deploying". What would you say?
+5. Which jobs in your pipeline can see your Docker Hub and Railway tokens? Which ones don't need to?
 
-<!-- Answers: 1) Tests check behaviour, not known vulnerabilities - vulnerable code can work perfectly. 2) The website only reports; the pipeline job blocks publish/deploy. 3) Feedback in minutes, before anything is built or published. 4) publish (docker-hub context) and deploy (RAILWAY_TOKEN). Project env vars like SNYK_TOKEN/RAILWAY_TOKEN are visible to all jobs - moving them into contexts limits that (least privilege, Part 7). -->
+<!-- Answers: 1) Tests check behaviour, not known vulnerabilities - vulnerable code can work perfectly. 2) The website only reports; the pipeline job blocks publish/deploy. 3) SCA: libraries in pom.xml (other people's code); SAST: patterns in our own source. 4) It turns the gate into a report and ships known-vulnerable code; instead fix, or accept a specific issue with a reviewed, time-limited ignore. 5) publish (docker-hub context) and deploy (RAILWAY_TOKEN); project env vars are visible to all jobs - contexts limit that. -->
 
 ---
 
@@ -1453,7 +1528,8 @@ All jobs green ✅ - including `deploy`.
 5. ✅ **Dependency Vulnerabilities** are tracked as CVEs and need automated scanning
 6. ✅ **Security Scanning Tools** - SAST (your code), DAST (running app), SCA (dependencies), container scanning
 7. ✅ **Supply-chain security** - the Trivy attack showed why tools are pinned by hash, not by tag
-8. ✅ **Snyk** scans dependencies on its website and as a CircleCI gate that blocks publish and deploy
+8. ✅ **Snyk** scans dependencies (SCA) and your own code (SAST, Snyk Code) - on its website and as CircleCI gates that block publish and deploy
+9. ✅ **The DevSecOps role** - find, stop and **report** security problems; developers fix them
 
 ---
 
@@ -1488,7 +1564,7 @@ All jobs green ✅ - including `deploy`.
 4. Run an **OWASP ZAP** DAST scan against your live Railway app
 
 **Before next lesson:**
-- Make sure today's pipeline is green: build, snyk_scan, test, publish, deploy
+- Keep today's pipeline as it is - `snyk_scan` failing is expected; your Railway app keeps running the version deployed in Lesson 4.12
 - Have your Railway app URL ready
 
 ---
